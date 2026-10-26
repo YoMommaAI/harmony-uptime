@@ -1,0 +1,53 @@
+name: Harmony uptime watch
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      test_url:
+        description: 'TEST ONLY: URL to probe instead of Harmony (uses separate test state, messages say [TEST])'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: harmony-uptime-${{ (github.event_name == 'workflow_dispatch' && inputs.test_url != '') && 'test' || 'live' }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load state
+        run: |
+          git fetch origin state --depth=1 2>/dev/null && git worktree add state-branch origin/state 2>/dev/null \
+            || { git worktree add --detach state-branch && (cd state-branch && git checkout --orphan state-tmp && git rm -rfq .); }
+
+      - name: Check Harmony
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          CHECK_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.test_url != '') && inputs.test_url || 'https://harmony.storybuds.ai/healthz' }}
+          STATE_FILE: state-branch/${{ (github.event_name == 'workflow_dispatch' && inputs.test_url != '') && 'test-state.json' || 'state.json' }}
+          LABEL: ${{ (github.event_name == 'workflow_dispatch' && inputs.test_url != '') && '[TEST] ' || '' }}
+          MIN_GAP_MINUTES: ${{ (github.event_name == 'workflow_dispatch' && inputs.test_url != '') && '0' || '9' }}
+          FAST: ${{ (github.event_name == 'workflow_dispatch' && inputs.test_url != '') && '1' || '' }}
+        run: node check.js
+
+      - name: Save state
+        if: always()
+        run: |
+          cd state-branch
+          git config user.name 'harmony-uptime'
+          git config user.email 'harmony-uptime@users.noreply.github.com'
+          git add -A
+          # Only commit when something other than the check timestamp changed.
+          if ! git diff --cached --quiet; then
+            git commit -qm "state: $(date -u +%FT%TZ)"
+            git push -q origin HEAD:refs/heads/state
+          fi
