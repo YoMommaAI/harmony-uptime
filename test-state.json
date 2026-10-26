@@ -1,7 +1,7 @@
 {
-  "status": "up",
-  "fails": 1,
+  "status": "down",
+  "fails": 2,
   "firstFailAt": 1792991414787,
-  "downAlertedAt": null,
+  "downAlertedAt": 1792991433832,
   "lastHeartbeatAt": 1792991414787
 }
